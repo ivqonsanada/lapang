@@ -7,9 +7,14 @@ import Foundation
 public struct Growth: Sendable, Identifiable, Hashable {
     public var id: String { url.path }
     public let url: URL
-    /// Allocated bytes of files modified inside the window.
+    /// Allocated bytes of files modified inside the window, not counting
+    /// what deeper folders in the same list already show. The list never
+    /// counts a byte twice.
     public let bytes: Int64
     public let files: Int
+    /// True when deeper folders of this one are listed too, so `bytes` is
+    /// what grew spread over its other folders.
+    public let spreadOut: Bool
 }
 
 public enum GrowthWatch {
@@ -85,19 +90,24 @@ public enum GrowthWatch {
 
     /// The deepest folders over the threshold. A folder above them is named
     /// too when what was written in it outside those folders is itself over
-    /// the threshold.
+    /// the threshold, and then with that part only.
     static func select(_ sums: [[String]: Sum], root: URL, threshold: Int64) -> [Growth] {
-        var covered: [[String]: Int64] = [:]
+        var covered: [[String]: Sum] = [:]
         var found: [Growth] = []
         for key in sums.keys.sorted(by: { $0.count > $1.count }) {
             let sum = sums[key]!
-            let reported = sum.bytes - covered[key, default: 0] >= threshold
+            let inside = covered[key, default: Sum()]
+            let rest = Sum(bytes: sum.bytes - inside.bytes, files: sum.files - inside.files)
+            let reported = rest.bytes >= threshold
             if reported {
                 let url = key.reduce(root) { $0.appending(path: $1, directoryHint: .isDirectory) }
-                found.append(Growth(url: url, bytes: sum.bytes, files: sum.files))
+                found.append(Growth(url: url, bytes: rest.bytes, files: rest.files, spreadOut: inside.bytes > 0))
             }
             if !key.isEmpty {
-                covered[Array(key.dropLast()), default: 0] += reported ? sum.bytes : covered[key, default: 0]
+                let parent = Array(key.dropLast())
+                let passed = reported ? sum : inside
+                covered[parent, default: Sum()].bytes += passed.bytes
+                covered[parent, default: Sum()].files += passed.files
             }
         }
         return found

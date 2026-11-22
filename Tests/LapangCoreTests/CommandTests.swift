@@ -77,10 +77,41 @@ private func script(_ tree: TempTree, _ name: String, _ body: String) throws -> 
         #expect(caches.map(\.kind) == [.pnpm, .npm])
         #expect(caches[0].folder.path == tree.url("store/v10").path)
         #expect(caches[0].bytes >= 30_000)
+        #expect(caches[0].name == "pnpm")
         // Only _cacache, not the logs next to it.
         #expect(caches[1].folder.lastPathComponent == "_cacache")
         #expect(caches[1].bytes >= 20_000 && caches[1].bytes < 90_000)
         #expect(caches[1].commandLine == "npm cache clean --force")
+    }
+
+    @Test func asksEveryInstalledPnpmForItsStore() async throws {
+        // Like this Mac: the global pnpm 10 has an empty store, pnpm 12
+        // (pinned by most projects) fills v11, pnpm 9 fills v3.
+        let tree = try TempTree()
+        try tree.folder("store/v10")
+        try tree.file("store/v11/files/a", bytes: 40_000)
+        try tree.file("store/v3/files/b", bytes: 20_000)
+        func pnpm(_ relative: String, store: String) throws {
+            try script(tree, relative, "pwd > '\(tree.url("cwd").path)'; [ \"$1 $2\" = 'store path' ] && echo '\(tree.url(store).path)'")
+        }
+        try pnpm("pnpm", store: "store/v10")
+        // pnpm's layout: the version name is a link to a _tmp_ folder.
+        try pnpm(".tools/pnpm/12.3.4_tmp_66143/bin/pnpm", store: "store/v11")
+        try tree.symlink("bin/.tools/pnpm/12.3.4", to: "12.3.4_tmp_66143")
+        try pnpm(".tools/pnpm/9.15.9/bin/pnpm", store: "store/v3")
+        try pnpm(".tools/pnpm/11.9.0_tmp_79085/bin/pnpm", store: "store/v11")
+        try pnpm(".tools/pnpm/10.26.1_tmp_73361/bin/pnpm", store: "store/v10")
+        try tree.symlink("bin/.tools/pnpm/10.26.1", to: "10.26.1_tmp_73361")
+
+        let caches = await PackageCaches.scan(ShellEnvironment(path: tree.url("bin").path + ":/usr/bin:/bin"))
+        #expect(caches.map(\.name) == ["pnpm 12.3.4", "pnpm 9.15.9"])
+        #expect(caches.map(\.folder.lastPathComponent) == ["v11", "v3"])
+        #expect(caches[0].tool.path.hasSuffix(".tools/pnpm/12.3.4/bin/pnpm"))
+        // Run from Lapang's own empty, writable folder, so no project's
+        // packageManager field switches versions.
+        let cwd = try String(contentsOf: tree.url("cwd"), encoding: .utf8)
+        #expect(cwd.trimmingCharacters(in: .whitespacesAndNewlines) == FileSystem.realPath(PackageCaches.neutralFolder))
+        #expect(FileManager.default.isWritableFile(atPath: PackageCaches.neutralFolder.path))
     }
 
     @Test func leavesOutWhatIsNotInstalled() async throws {
@@ -145,6 +176,20 @@ private func script(_ tree: TempTree, _ name: String, _ body: String) throws -> 
         let found = try GrowthWatch.scan(roots: [tree.url("root")], options: small)
         let names = found.map(\.url.lastPathComponent)
         #expect(names == ["big", "other"])
+        #expect(found.allSatisfy { !$0.spreadOut })
+    }
+
+    @Test func aParentShowsOnlyWhatIsNotListedBelowIt() throws {
+        let tree = try TempTree()
+        try tree.file("root/a/big/file", bytes: 300_000)
+        for index in 0..<4 { try tree.file("root/a/small\(index)/file", bytes: 40_000) }
+        let found = try GrowthWatch.scan(roots: [tree.url("root")], options: small)
+        #expect(found.map(\.url.lastPathComponent) == ["big", "a"])
+        let parent = found[1]
+        #expect(parent.spreadOut)
+        #expect(parent.files == 4)
+        // The four small folders only, not big's 300 KB again.
+        #expect(parent.bytes >= 160_000 && parent.bytes < 300_000)
     }
 
     @Test func skipsGitObjectsAndSymlinks() throws {

@@ -63,13 +63,16 @@ public struct CommandResult: Sendable, Equatable {
 
 public enum CommandRunner {
     /// Runs a program with only HOME, USER, LANG and the given PATH, stdin
-    /// closed, and kills it after `timeout` seconds.
+    /// closed, in `directory` (the app's own, when nil), and kills it after
+    /// `timeout` seconds.
     public static func run(
-        _ executable: URL, _ arguments: [String], path: String, timeout: TimeInterval
+        _ executable: URL, _ arguments: [String], path: String, timeout: TimeInterval,
+        directory: URL? = nil
     ) async throws -> CommandResult {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
+        if let directory { process.currentDirectoryURL = directory }
         let environment = ProcessInfo.processInfo.environment
         process.environment = [
             "HOME": environment["HOME"] ?? NSHomeDirectory(),
