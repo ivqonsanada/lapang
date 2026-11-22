@@ -1,10 +1,12 @@
 import Foundation
 
-public enum RuleID: String, Sendable, CaseIterable, Codable, Hashable {
+public enum RuleID: String, Sendable, CaseIterable, Codable, Hashable, Identifiable {
     case browserProfiles
     case headlessScratch
     case claudeTemp
     case subagentLogs
+
+    public var id: String { rawValue }
 }
 
 /// One thing a rule would delete: a folder, measured.
@@ -38,6 +40,14 @@ public struct Item: Sendable, Identifiable, Hashable {
 
     public func isIdle(at now: Date) -> Bool {
         now.timeIntervalSince(lastChange) >= idleNeeded
+    }
+
+    /// The same item under another idle setting; nothing is measured again.
+    public func withIdle(_ idle: TimeInterval) -> Item {
+        Item(
+            rule: rule, url: url, root: root, bytes: bytes, files: files,
+            created: created, lastChange: lastChange, idleNeeded: idle
+        )
     }
 }
 
@@ -89,7 +99,14 @@ public struct RuleReport: Sendable {
     public var newInLastDay: Int {
         items.filter { scannedAt.timeIntervalSince($0.created) < 86400 }.count
     }
+    /// Items left alone because something inside changed recently.
+    public var inUse: Int { items.count - cleanable.count }
     public var oldest: Date? { items.map(\.created).min() }
+
+    /// The same report under another idle setting, as of the same scan.
+    public func withIdle(_ idle: TimeInterval) -> RuleReport {
+        RuleReport(rule: rule, items: items.map { $0.withIdle(idle) }, scannedAt: scannedAt, unreadable: unreadable)
+    }
     public var newest: Date? { items.map(\.created).max() }
 }
 

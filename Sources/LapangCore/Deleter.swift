@@ -40,6 +40,8 @@ public struct DeletionResult: Sendable {
     public var deleted: [Deleted] = []
     public var skipped: [Skipped] = []
 
+    public init() {}
+
     public var freedBytes: Int64 { deleted.reduce(0) { $0 + $1.freed } }
 }
 

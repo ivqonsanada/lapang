@@ -145,6 +145,10 @@ private func fakeMac(_ tree: TempTree) throws -> Places {
         settings.subagentAge = 7 * 86400
         #expect(try Rules.scan(.subagentLogs, in: places, settings: settings, now: now).cleanable.isEmpty)
         settings.subagentAge = 4 * 86400
-        #expect(try Rules.scan(.subagentLogs, in: places, settings: settings, now: now).cleanable.count == 1)
+        let report = try Rules.scan(.subagentLogs, in: places, settings: settings, now: now)
+        #expect(report.cleanable.count == 1)
+        // A new setting applies to the report already made, without a scan.
+        #expect(report.withIdle(7 * 86400).cleanable.isEmpty)
+        #expect(report.withIdle(7 * 86400).inUse == 1)
     }
 }

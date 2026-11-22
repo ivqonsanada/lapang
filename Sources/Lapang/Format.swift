@@ -1,0 +1,153 @@
+import Foundation
+import LapangCore
+import SwiftUI
+
+enum Format {
+    /// Decimal units, as Finder counts.
+    static func bytes(_ value: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: value, countStyle: .file)
+    }
+
+    /// Gigabytes to one decimal, for the numbers that roll.
+    static func gigabytes(_ value: Int64) -> Double {
+        (Double(value) / 1_000_000_000 * 10).rounded() / 10
+    }
+
+    static func count(_ value: Int, _ singular: String, _ plural: String) -> String {
+        "\(value.formatted()) \(value == 1 ? singular : plural)"
+    }
+
+    /// "3 days", "5 hours", "12 minutes".
+    static func duration(_ seconds: TimeInterval) -> String {
+        if seconds < 60 { return "less than a minute" }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.maximumUnitCount = 1
+        formatter.allowedUnits = [.day, .hour, .minute]
+        return formatter.string(from: seconds) ?? ""
+    }
+
+    /// "today, 14:05", "yesterday, 21:10", "20 Nov, 09:12".
+    static func when(_ date: Date) -> String {
+        let time = date.formatted(date: .omitted, time: .shortened)
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "today, \(time)" }
+        if calendar.isDateInYesterday(date) { return "yesterday, \(time)" }
+        return "\(date.formatted(.dateTime.day().month(.abbreviated))), \(time)"
+    }
+
+    /// A path with the home folder written as ~.
+    static func path(_ url: URL, home: URL) -> String {
+        let path = url.path(percentEncoded: false).trimmingSuffix("/")
+        let homePath = home.path(percentEncoded: false).trimmingSuffix("/")
+        if path == homePath { return "~" }
+        if path.hasPrefix(homePath + "/") { return "~" + path.dropFirst(homePath.count) }
+        return path
+    }
+
+    /// Claude Code names a project folder after its path with / turned into
+    /// -, e.g. -Users-me-code-lapang. Shown without the home part.
+    static func project(_ folder: String, home: URL) -> String {
+        let prefix = home.path(percentEncoded: false).trimmingSuffix("/").replacingOccurrences(of: "/", with: "-") + "-"
+        return folder.hasPrefix(prefix) ? String(folder.dropFirst(prefix.count)) : folder
+    }
+
+    /// The two lines an item is listed with: what it is, and where.
+    static func lines(_ item: Item, home: URL) -> (title: String, detail: String) {
+        switch item.rule {
+        case .claudeTemp:
+            // …/claude-501/<project>/<session>
+            let session = item.url.lastPathComponent
+            let project = item.url.deletingLastPathComponent().lastPathComponent
+            return (Format.project(project, home: home), "session \(session)")
+        case .subagentLogs:
+            // <account>/projects/<project>/<session>/subagents
+            let session = item.url.deletingLastPathComponent()
+            let project = session.deletingLastPathComponent()
+            let account = project.deletingLastPathComponent().deletingLastPathComponent()
+            return (Format.project(project.lastPathComponent, home: home),
+                    "\(account.lastPathComponent) · session \(session.lastPathComponent)")
+        case .browserProfiles, .headlessScratch:
+            return (item.url.lastPathComponent, path(item.url.deletingLastPathComponent(), home: home))
+        }
+    }
+}
+
+extension String {
+    func trimmingSuffix(_ suffix: String) -> String {
+        hasSuffix(suffix) && count > suffix.count ? String(dropLast(suffix.count)) : self
+    }
+}
+
+/// Text that is quieter than the primary text but keeps AA contrast in both
+/// appearances (the system's secondary label sits near 4:1 on the window).
+extension ShapeStyle where Self == Color {
+    static var muted: Color { Color.primary.opacity(0.68) }
+}
+
+extension RuleID {
+    var title: String {
+        switch self {
+        case .browserProfiles: "Test browser profiles"
+        case .headlessScratch: "Headless Chrome scratch"
+        case .claudeTemp: "Claude session temp"
+        case .subagentLogs: "Old subagent logs"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .browserProfiles: "Chrome profiles that test scripts opened in the temp folder and never removed."
+        case .headlessScratch: "scoped_dir folders headless Chrome leaves in its cache and in the temp folder."
+        case .claudeTemp: "Task output and scratchpads of Claude Code sessions, in /private/tmp."
+        case .subagentLogs: "Transcripts of Claude subagents. Claude Code's own 30-day cleanup leaves them."
+        }
+    }
+
+    var reviewTitle: String {
+        switch self {
+        case .browserProfiles: "Delete test browser profiles?"
+        case .headlessScratch: "Delete headless Chrome scratch folders?"
+        case .claudeTemp: "Delete Claude session temp folders?"
+        case .subagentLogs: "Delete old subagent logs?"
+        }
+    }
+
+    var emptyText: String {
+        switch self {
+        case .browserProfiles: "No test browser profiles in the temp folder."
+        case .headlessScratch: "No scoped_dir folders."
+        case .claudeTemp: "No Claude session temp folders."
+        case .subagentLogs: "No subagent logs."
+        }
+    }
+
+    /// Relevant to what the rule holds: a browser, a window-less browser,
+    /// a terminal app's sessions, conversation transcripts.
+    var symbol: String {
+        switch self {
+        case .browserProfiles: "globe"
+        case .headlessScratch: "rectangle.dashed"
+        case .claudeTemp: "terminal"
+        case .subagentLogs: "text.bubble"
+        }
+    }
+
+    /// What one item is called in counts.
+    var noun: (String, String) {
+        switch self {
+        case .browserProfiles, .headlessScratch: ("folder", "folders")
+        case .claudeTemp, .subagentLogs: ("session", "sessions")
+        }
+    }
+
+    /// The idle rule in words, for the review sheet.
+    func idleText(_ settings: RuleSettings) -> String {
+        let time = Format.duration(settings.idle(for: self))
+        switch self {
+        case .subagentLogs: return "Only sessions whose subagent logs are older than \(time) are listed."
+        case .claudeTemp: return "Only sessions where nothing changed for \(time) are listed. A live session always has recent files."
+        case .browserProfiles, .headlessScratch: return "Only folders where nothing changed for \(time) are listed."
+        }
+    }
+}
