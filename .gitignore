@@ -4,3 +4,7 @@ build/
 *.xcodeproj
 xcuserdata/
 .DS_Store
+
+# Notes about the maintainer's own Mac (the plan, sizes found, a history backup). Not published.
+/local/
+CLAUDE.local.md
