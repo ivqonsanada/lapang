@@ -114,4 +114,19 @@ import Testing
         #expect(places.claudeAccounts.map(\.lastPathComponent) == ["main", "work", ".claude"])
         #expect(places.claudeTemp.path.hasSuffix("/tmp/claude-501"))
     }
+
+    @Test func growthWatchLooksInHomeFoldersButNotPrivateOnes() throws {
+        let tree = try TempTree()
+        for name in ["Developer", ".cache", "Desktop", "Documents", "Pictures", "Library/Caches", "Library/Application Support", "Library/Mail"] {
+            try tree.folder("home/\(name)")
+        }
+        try tree.folder("elsewhere")
+        try tree.symlink("home/linked", to: tree.url("elsewhere").path)
+        let places = Places(home: tree.url("home"), userTemp: tree.url("t"), sharedTemp: tree.url("tmp"), uid: 501)
+        let roots = places.growthRoots.map { $0.path.replacingOccurrences(of: tree.root.path + "/", with: "") }
+        #expect(roots == [
+            "home/.cache", "home/Desktop", "home/Developer",
+            "home/Library/Application Support", "home/Library/Caches", "t", "tmp",
+        ])
+    }
 }

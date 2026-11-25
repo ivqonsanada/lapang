@@ -63,11 +63,20 @@ public struct Places: Sendable, Equatable {
         home.appending(path: "Library/Logs/Lapang/deleted.log", directoryHint: .notDirectory)
     }
 
-    /// Where "Grew in the last day" looks.
+    /// Home folders the growth watch leaves out: the rest of Library (other
+    /// apps' private data, mail, photos) and the folders of the owner's own
+    /// documents and media.
+    static let growthSkipped: Set<String> = [
+        "Library", "Documents", "Pictures", "Movies", "Music", "Applications", "Public", ".Trash",
+    ]
+
+    /// Where "Grew in the last day" looks: every real folder in the home
+    /// folder, hidden ones too (where tools keep their caches), except
+    /// `growthSkipped`; Library's Application Support and Caches; and both
+    /// temp folders. macOS asks once before Desktop and Downloads are read.
     public var growthRoots: [URL] {
-        [
-            "Developer", "Library/Application Support", "Library/Caches", ".cache",
-            ".ccs/instances", "Downloads", "Desktop",
-        ].map { home.appending(path: $0, directoryHint: .isDirectory) } + [userTemp, sharedTemp]
+        FileSystem.subfolders(of: home).filter { !Self.growthSkipped.contains($0.lastPathComponent) }
+            + ["Library/Application Support", "Library/Caches"].map { home.appending(path: $0, directoryHint: .isDirectory) }
+            + [userTemp, sharedTemp]
     }
 }
