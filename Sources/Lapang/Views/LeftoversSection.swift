@@ -123,12 +123,13 @@ struct RuleRow: View {
     @ViewBuilder
     private var trailing: some View {
         if let report = slot.value, !report.items.isEmpty {
-            let cleanable = report.cleanableBytes
-            Text(cleanable > 0 ? Format.bytes(cleanable) : "All recent")
+            // Idle folders can weigh nothing (empty, or clones of a file kept
+            // elsewhere) and still be worth clearing out.
+            Text(report.cleanable.isEmpty ? "All recent" : Format.bytes(report.cleanableBytes))
                 .font(.title3.weight(.semibold))
                 .monospacedDigit()
                 .contentTransition(.numericText())
-                .foregroundStyle(cleanable > 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(.muted))
+                .foregroundStyle(report.cleanable.isEmpty ? AnyShapeStyle(.muted) : AnyShapeStyle(.primary))
             Button("Review…", action: review)
                 .disabled(report.cleanable.isEmpty)
                 .help(report.cleanable.isEmpty
