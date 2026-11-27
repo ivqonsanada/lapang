@@ -17,7 +17,7 @@ In November 2026 my 488 GB SSD went down to 9 GB free. Most of the space was not
 - Chrome had written its 4 GB on-device AI model in one day. That one was found only by summing
   what each folder had written in the last 24 hours.
 
-Every rule in Lapang comes from that cleanup. Each rule also counts how many new items appeared in
+Lapang's first rules came from that cleanup. Each rule also counts how many new items appeared in
 the last day, because that number is what gives a leak away.
 
 ## What it looks after
@@ -28,11 +28,20 @@ the last day, because that number is what gives a leak away.
 | Headless Chrome scratch | `scoped_dir*` in `~/Library/Caches/Google/Chrome-headless` and `$TMPDIR` | nothing inside changed for 2 hours |
 | Claude Code session temp | `/private/tmp/claude-<uid>/<project>/<session>` | nothing inside changed for 2 days |
 | Old subagent logs | `projects/<project>/<session>/subagents` in `~/.claude` and in every [CCS](https://github.com/kaitranntt/ccs) account (`~/.ccs/instances/*`) | nothing inside changed for 3 days |
+| Project dependencies and builds | `node_modules`, `.next` and `.open-next` beside a `package.json` whose project or workspace has a lockfile, and `vendor` beside `composer.json` and `composer.lock`. Looked for in every folder in your home folder except the hidden ones (tools keep their own packages there) and the ones the growth watch skips | nothing inside changed for 7 days |
 | Package caches | `pnpm store prune` for every installed pnpm version, and `npm cache clean --force` | you tick the command |
 | Grew in the last day | Any folder where more than 1 GB was written in 24 hours, up to three levels down. It looks in every folder in your home folder except Library, Documents, Pictures, Movies, Music, Applications and Public, plus `~/Library/Application Support`, `~/Library/Caches` and both temp folders | never: watch only, with Show in Finder |
 
 The idle times are in Settings (⌘,). Lapang never touches a main Claude Code transcript
-(`<session>.jsonl`) or anything under `memory/`.
+(`<session>.jsonl`) or anything under `memory/`. A `vendor` folder with no `composer.json` and
+`composer.lock` beside it, such as Laravel's `resources/views/vendor`, is source and is never
+listed.
+
+Sizes are what deleting frees, not what `du` shows. On APFS a file can be a clone that shares its
+blocks with another file: pnpm clones every package from its store into `node_modules`, and
+`cp -c` or a worktree script can clone a whole checkout. Lapang counts each file's private size,
+the part no clone shares, so a pnpm `node_modules` of 1.2 GB may free 110 MB. The review sheet
+shows both numbers when they differ.
 
 pnpm keeps a separate store for each store version, and a project that pins its pnpm version
 fills that version's store. Lapang asks every installed pnpm (the global one and the versions in
@@ -102,7 +111,7 @@ you confirm it.
 
 Not yet:
 
-- Worktree folders with no unsaved work (`node_modules`, `vendor`)
+- Whole worktrees with no unsaved work
 - The Claude desktop app's VM
 - Chrome's on-device AI model
 - A low-space notification

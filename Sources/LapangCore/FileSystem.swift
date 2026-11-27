@@ -49,6 +49,25 @@ public enum FileSystem {
         defer { free(resolved) }
         return String(cString: resolved)
     }
+
+    /// The bytes deleting this one file would free: APFS's private size, the
+    /// blocks it shares with no clone. A file pnpm cloned from its store, or
+    /// a checkout copied with `cp -c`, can hold 0 of its own. Nil where the
+    /// volume cannot say; use the allocated size there. Never follows a
+    /// symlink.
+    public static func privateBytes(_ path: UnsafePointer<CChar>) -> Int64? {
+        var request = attrlist()
+        request.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        request.forkattr = attrgroup_t(ATTR_CMNEXT_PRIVATESIZE)
+        // A UInt32 length, then the off_t packed right after it (offset 4).
+        var buffer = (UInt64(0), UInt64(0))
+        let options = UInt32(FSOPT_ATTR_CMN_EXTENDED | FSOPT_NOFOLLOW)
+        let size: off_t? = withUnsafeMutableBytes(of: &buffer) { raw in
+            guard getattrlist(path, &request, raw.baseAddress, raw.count, options) == 0 else { return nil }
+            return raw.loadUnaligned(fromByteOffset: 4, as: off_t.self)
+        }
+        return size.map { Int64($0) }
+    }
 }
 
 extension timespec {

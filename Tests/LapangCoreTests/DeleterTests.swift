@@ -15,7 +15,7 @@ import Testing
         let stats = try Scanner.measure(tree.url(path))
         return Item(
             rule: .browserProfiles, url: tree.url(path), root: tree.url(root),
-            bytes: stats.allocatedBytes, files: stats.files, created: .hoursAgo(5),
+            bytes: stats.freeableBytes, diskBytes: stats.allocatedBytes, files: stats.files, created: .hoursAgo(5),
             lastChange: stats.newestChange, idleNeeded: 2 * 3600
         )
     }
@@ -45,6 +45,23 @@ import Testing
         #expect(fields[2] == "deleted")
         #expect(fields[3] == String(item.bytes))
         #expect(fields[4] == item.url.path)
+    }
+
+    @Test func countsOnlyWhatAFolderHeldOnItsOwn() throws {
+        let tree = try TempTree()
+        try tree.file("store/big", bytes: 200_000)
+        try tree.file("T/puppeteer_dev_firefox_profile-1/Default/Preferences", bytes: 100)
+        // A clone of the store's file: it shares every block with it.
+        #expect(clonefile(tree.url("store/big").path, tree.url("T/puppeteer_dev_firefox_profile-1/Default/big").path, 0) == 0)
+        try tree.age("T/puppeteer_dev_firefox_profile-1", to: .hoursAgo(5))
+        let item = try item(tree, "T/puppeteer_dev_firefox_profile-1", root: "T")
+        #expect(item.diskBytes >= 200_000)
+        #expect(item.bytes < 100_000)
+
+        let result = deleter(tree).delete([item])
+        #expect(result.deleted.count == 1)
+        #expect(result.freedBytes < 100_000)
+        #expect(exists(tree.url("store/big")))
     }
 
     @Test func refusesAPathOutsideTheRoot() throws {

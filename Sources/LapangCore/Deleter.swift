@@ -145,10 +145,19 @@ public struct Deleter: Sendable {
                 case FTS_DP:
                     if rmdir(path) == 0 { freed += Int64(st?.st_blocks ?? 0) * 512 } else { fail(path, errno) }
                 case FTS_F, FTS_SL, FTS_SLNONE, FTS_DEFAULT:
-                    if unlink(path) == 0 {
-                        if let st, (st.st_mode & S_IFMT) != S_IFREG || st.st_nlink <= 1 {
-                            freed += Int64(st.st_blocks) * 512
+                    // Asked right before the unlink: a clone whose twin went
+                    // a moment ago holds its blocks alone by now.
+                    var gives: Int64 = 0
+                    if let st {
+                        let allocated = Int64(st.st_blocks) * 512
+                        if (st.st_mode & S_IFMT) != S_IFREG {
+                            gives = allocated
+                        } else if st.st_nlink <= 1 {
+                            gives = FileSystem.privateBytes(path) ?? allocated
                         }
+                    }
+                    if unlink(path) == 0 {
+                        freed += gives
                     } else {
                         fail(path, errno)
                     }

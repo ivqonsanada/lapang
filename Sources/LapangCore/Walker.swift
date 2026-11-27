@@ -5,6 +5,10 @@ import Foundation
 /// file lengths, each hard-linked file once.
 public struct FolderStats: Sendable, Equatable {
     public var allocatedBytes: Int64 = 0
+    /// What deleting the folder would free: each file's APFS private size
+    /// (clones share their blocks), and a hard-linked file only when all its
+    /// links are inside.
+    public var freeableBytes: Int64 = 0
     public var files: Int = 0
     public var folders: Int = 0
     /// The newest modification time of anything inside, the folder itself
@@ -56,6 +60,15 @@ enum Walker {
         fts_set(UnsafeMutablePointer<FTS>(fts), entry, FTS_SKIP)
     }
 
+    /// The name of the entry (its last path component).
+    static func name(_ entry: UnsafeMutablePointer<FTSENT>) -> String {
+        withUnsafePointer(to: &entry.pointee.fts_name) { pointer in
+            pointer.withMemoryRebound(to: UInt8.self, capacity: Int(entry.pointee.fts_namelen)) {
+                String(decoding: UnsafeBufferPointer(start: $0, count: Int(entry.pointee.fts_namelen)), as: UTF8.self)
+            }
+        }
+    }
+
     struct InodeKey: Hashable {
         var device: Int32
         var inode: UInt64
@@ -64,7 +77,8 @@ enum Walker {
     /// Measures a folder (or a single file).
     static func measure(_ url: URL) throws -> FolderStats {
         var stats = FolderStats()
-        var seenLinks = Set<InodeKey>()
+        // Hard-linked files: how many of their links are inside, and their size.
+        var links: [InodeKey: (seen: Int, needed: Int, bytes: Int64)] = [:]
         try walk(url.path) { entry, _ in
             let info = Int32(entry.pointee.fts_info)
             switch info {
@@ -72,11 +86,22 @@ enum Walker {
                 guard let statp = entry.pointee.fts_statp else { stats.unreadable += 1; return }
                 let st = statp.pointee
                 let kind = st.st_mode & S_IFMT
+                let allocated = Int64(st.st_blocks) * 512
                 if kind == S_IFREG, st.st_nlink > 1 {
-                    // A hard link: its blocks once, like du.
-                    guard seenLinks.insert(InodeKey(device: st.st_dev, inode: st.st_ino)).inserted else { return }
+                    // A hard link: its blocks once, like du; freed only when
+                    // every link to it is in here.
+                    let key = InodeKey(device: st.st_dev, inode: st.st_ino)
+                    if let known = links[key] {
+                        links[key] = (known.seen + 1, known.needed, known.bytes)
+                        return
+                    }
+                    links[key] = (1, Int(st.st_nlink), allocated)
+                } else if kind == S_IFREG {
+                    stats.freeableBytes += FileSystem.privateBytes(entry.pointee.fts_path) ?? allocated
+                } else {
+                    stats.freeableBytes += allocated
                 }
-                stats.allocatedBytes += Int64(st.st_blocks) * 512
+                stats.allocatedBytes += allocated
                 if kind == S_IFDIR { stats.folders += 1 } else { stats.files += 1 }
                 let modified = st.st_mtimespec.date
                 if modified > stats.newestChange { stats.newestChange = modified }
@@ -86,6 +111,9 @@ enum Walker {
             default:
                 break  // FTS_DP (a folder again, after its contents), FTS_DC, FTS_DOT
             }
+        }
+        for link in links.values where link.seen >= link.needed {
+            stats.freeableBytes += link.bytes
         }
         return stats
     }

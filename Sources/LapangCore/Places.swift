@@ -79,4 +79,15 @@ public struct Places: Sendable, Equatable {
             + ["Library/Application Support", "Library/Caches"].map { home.appending(path: $0, directoryHint: .isDirectory) }
             + [userTemp, sharedTemp]
     }
+
+    /// Where the project rule looks for node_modules and the like: the home
+    /// folders the growth watch reads, minus hidden ones. Those belong to
+    /// tools (~/.vscode's extensions, global npm and Composer packages), and
+    /// deleting a folder there would break the tool.
+    public var projectRoots: [URL] {
+        FileSystem.subfolders(of: home).filter {
+            let name = $0.lastPathComponent
+            return !name.hasPrefix(".") && !Self.growthSkipped.contains(name)
+        }
+    }
 }

@@ -152,3 +152,79 @@ private func fakeMac(_ tree: TempTree) throws -> Places {
         #expect(report.withIdle(7 * 86400).inUse == 1)
     }
 }
+
+@Suite struct ProjectFolderRuleTests {
+    private func relative(_ url: URL, _ tree: TempTree) -> String {
+        url.path.replacingOccurrences(of: tree.root.path + "/", with: "")
+    }
+
+    @Test func findsDependencyAndBuildFoldersOfProjects() throws {
+        let tree = try TempTree()
+        let places = try fakeMac(tree)
+        // An npm app with two builds, a package of a pnpm workspace, a Laravel app.
+        try tree.file("home/code/app/package.json")
+        try tree.file("home/code/app/package-lock.json")
+        try tree.file("home/code/app/node_modules/react/index.js")
+        try tree.file("home/code/app/node_modules/react/node_modules/x/index.js")  // part of the outer one
+        try tree.file("home/code/app/.next/build-manifest.json")
+        try tree.file("home/code/app/.open-next/worker.js")
+        try tree.file("home/code/app/.git/node_modules/x")                        // inside .git
+        try tree.file("home/code/mono/pnpm-lock.yaml")
+        try tree.file("home/code/mono/packages/ui/package.json")
+        try tree.file("home/code/mono/packages/ui/node_modules/.bin/tsc")
+        try tree.file("home/code/site/composer.json")
+        try tree.file("home/code/site/composer.lock")
+        try tree.file("home/code/site/vendor/autoload.php")
+        try tree.file("home/code/site/resources/views/vendor/mail/html.blade.php")  // source
+        // Not a project someone works on.
+        try tree.file("home/code/loose/node_modules/a/index.js")                  // no package.json
+        try tree.file("home/code/tool/package.json")                              // no lockfile anywhere
+        try tree.file("home/code/tool/node_modules/a/index.js")
+        try tree.file("home/.vscode/extensions/ext/package.json")                 // a tool's
+        try tree.file("home/.vscode/extensions/ext/package-lock.json")
+        try tree.file("home/.vscode/extensions/ext/node_modules/a/index.js")
+        try tree.file("home/Library/App/package.json")                            // Library is skipped
+        try tree.file("home/Library/App/yarn.lock")
+        try tree.file("home/Library/App/node_modules/a/index.js")
+        try tree.file("home/code/linked/package.json")                            // a symlink, not a folder
+        try tree.file("home/code/linked/yarn.lock")
+        try tree.file("elsewhere/node_modules/a/index.js")
+        try tree.symlink("home/code/linked/node_modules", to: tree.url("elsewhere/node_modules").path)
+
+        let found = try Rules.projectFolders(places)
+        #expect(found.map { relative($0.url, tree) }.sorted() == [
+            "home/code/app/.next", "home/code/app/.open-next", "home/code/app/node_modules",
+            "home/code/mono/packages/ui/node_modules", "home/code/site/vendor",
+        ])
+        // Each may only ever delete inside its own project folder.
+        #expect(found.allSatisfy { $0.root.path == $0.url.deletingLastPathComponent().path })
+    }
+
+    @Test func offersOnlyFoldersLeftAlone() throws {
+        let tree = try TempTree()
+        let places = try fakeMac(tree)
+        let now = Date()
+        for project in ["old", "fresh"] {
+            try tree.file("home/code/\(project)/package.json")
+            try tree.file("home/code/\(project)/bun.lock")
+            try tree.file("home/code/\(project)/node_modules/a/index.js", bytes: 8000)
+        }
+        try tree.age("home/code/old/node_modules", to: .daysAgo(30, from: now))
+        try tree.age("home/code/fresh/node_modules", to: .daysAgo(30, from: now))
+        // Installed again two days ago.
+        try tree.age("home/code/fresh/node_modules/a/index.js", to: .daysAgo(2, from: now))
+
+        let report = try Rules.scan(.projectFolders, in: places, settings: RuleSettings(), now: now)
+        #expect(report.items.count == 2)
+        #expect(report.cleanable.map { relative($0.url, tree) } == ["home/code/old/node_modules"])
+        #expect(report.cleanableBytes >= 8000)
+    }
+
+    @Test func settingsSavedBeforeANewRuleKeepTheirValues() throws {
+        let saved = #"{"browserIdle":3600,"scratchIdle":7200,"claudeTempIdle":172800,"subagentAge":86400}"#
+        let settings = try JSONDecoder().decode(RuleSettings.self, from: Data(saved.utf8))
+        #expect(settings.browserIdle == 3600)
+        #expect(settings.subagentAge == 86400)
+        #expect(settings.projectIdle == RuleSettings().projectIdle)
+    }
+}

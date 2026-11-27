@@ -26,6 +26,13 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("Claude Code")
+            }
+            Section {
+                Stepper(value: days(\.projectIdle), in: 1...90) {
+                    Text("Dependencies and builds: idle for \(Format.count(Int(model.settings.rules.projectIdle / 86400), "day", "days"))")
+                }
+            } header: {
+                Text("Projects")
             } footer: {
                 Text("A folder is offered for cleaning only when nothing inside it changed for this long. A change here applies to the last scan straight away.")
                     .foregroundStyle(.muted)

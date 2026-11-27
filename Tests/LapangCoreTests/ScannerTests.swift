@@ -128,5 +128,26 @@ import Testing
             "home/.cache", "home/Desktop", "home/Developer",
             "home/Library/Application Support", "home/Library/Caches", "t", "tmp",
         ])
+        // Projects are looked for outside the hidden folders, which belong to tools.
+        let projects = places.projectRoots.map { $0.path.replacingOccurrences(of: tree.root.path + "/", with: "") }
+        #expect(projects == ["home/Desktop", "home/Developer"])
+    }
+
+    @Test func freeableBytesLeaveOutClonesAndLinksKeptElsewhere() throws {
+        let tree = try TempTree()
+        try tree.file("store/big", bytes: 200_000)
+        try tree.folder("project")
+        // A clone shares every block with the store's file.
+        #expect(clonefile(tree.url("store/big").path, tree.url("project/clone").path, 0) == 0)
+        // A hard link whose other link stays in the store.
+        #expect(link(tree.url("store/big").path, tree.url("project/link").path) == 0)
+        // A file of its own, hard-linked twice inside: freed once.
+        try tree.file("project/own", bytes: 50_000)
+        #expect(link(tree.url("project/own").path, tree.url("project/own-again").path) == 0)
+
+        let stats = try Scanner.measure(tree.url("project"))
+        #expect(stats.allocatedBytes >= 450_000)   // clone + store link + own, like du
+        #expect(stats.freeableBytes >= 50_000)
+        #expect(stats.freeableBytes < 100_000)
     }
 }

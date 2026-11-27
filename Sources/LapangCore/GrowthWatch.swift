@@ -58,10 +58,10 @@ public enum GrowthWatch {
             let info = Int32(entry.pointee.fts_info)
             let level = Int(entry.pointee.fts_level)
             if info == FTS_D {
-                let name = ftsName(entry)
+                let name = Walker.name(entry)
                 // Git's object store: packs are rewritten often and say
                 // nothing about what grew.
-                if name == "objects", level >= 1, entry.pointee.fts_parent.map(ftsName) == ".git" {
+                if name == "objects", level >= 1, entry.pointee.fts_parent.map(Walker.name) == ".git" {
                     Walker.skip(fts, entry)
                     return
                 }
@@ -111,14 +111,6 @@ public enum GrowthWatch {
             }
         }
         return found
-    }
-
-    private static func ftsName(_ entry: UnsafeMutablePointer<FTSENT>) -> String {
-        withUnsafePointer(to: &entry.pointee.fts_name) { pointer in
-            pointer.withMemoryRebound(to: UInt8.self, capacity: Int(entry.pointee.fts_namelen)) {
-                String(decoding: UnsafeBufferPointer(start: $0, count: Int(entry.pointee.fts_namelen)), as: UTF8.self)
-            }
-        }
     }
 }
 

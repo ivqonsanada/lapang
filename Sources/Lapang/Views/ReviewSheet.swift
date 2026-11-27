@@ -46,12 +46,18 @@ struct ReviewSheet: View {
         return false
     }
 
+    /// Said only when some folder here shares files with a clone elsewhere.
+    private var sharedNote: String {
+        guard items.contains(where: { $0.sharedBytes >= 1_000_000 }) else { return "" }
+        return " Sizes show what deleting frees. Where a folder shares files with a copy elsewhere (pnpm's store, another checkout), that part stays on disk with the copy."
+    }
+
     private var choosing: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(rule.reviewTitle)
                     .font(.title2.weight(.semibold))
-                Text("\(rule.idleText(model.settings.rules)) Each one is checked again right before it goes, and every deletion is written to ~/Library/Logs/Lapang/deleted.log.")
+                Text("\(rule.idleText(model.settings.rules))\(sharedNote) Each one is checked again right before it goes, and every deletion is written to ~/Library/Logs/Lapang/deleted.log.")
                     .font(.callout)
                     .foregroundStyle(.muted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -133,6 +139,12 @@ struct ItemRow: View {
     @Binding var isOn: Bool
     @Environment(LapangModel.self) private var model
 
+    private var idleLine: String {
+        let idle = "idle \(Format.duration(Date().timeIntervalSince(item.lastChange)))"
+        guard item.sharedBytes >= 1_000_000 else { return idle }
+        return "\(idle) · \(Format.bytes(item.diskBytes)) on disk"
+    }
+
     var body: some View {
         let lines = Format.lines(item, home: model.places.home)
         Toggle(isOn: $isOn) {
@@ -151,7 +163,7 @@ struct ItemRow: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(Format.bytes(item.bytes))
                         .monospacedDigit()
-                    Text("idle \(Format.duration(Date().timeIntervalSince(item.lastChange)))")
+                    Text(idleLine)
                         .font(.callout)
                         .foregroundStyle(.muted)
                 }
