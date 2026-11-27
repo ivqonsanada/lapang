@@ -149,8 +149,21 @@ public enum Rules {
             let name = folder.lastPathComponent
             if name.hasPrefix("scoped_dir") { return false }
             if profilePrefixes.contains(where: name.hasPrefix) { return true }
-            return FileSystem.info(folder.appending(path: "Default/Preferences"))?.isFile == true
+            return isChromeProfile(folder)
         }.map { Candidate(url: $0, root: root) }
+    }
+
+    /// Entries only a Chromium profile's Default folder holds. Preferences
+    /// alone is not enough: a test browser that was killed can leave a
+    /// profile without it, holding only caches and storage.
+    static let chromeProfileMarkers = [
+        "Preferences", "Cookies", "Session Storage", "Local Storage", "GPUCache", "Service Worker",
+    ]
+
+    static func isChromeProfile(_ folder: URL) -> Bool {
+        let profile = folder.appending(path: "Default", directoryHint: .isDirectory)
+        guard FileSystem.isRealFolder(profile) else { return false }
+        return chromeProfileMarkers.contains { FileSystem.info(profile.appending(path: $0)) != nil }
     }
 
     /// Rule 2. Headless Chrome's scoped_dir folders, in its cache folder and

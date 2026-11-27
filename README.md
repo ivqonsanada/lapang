@@ -24,7 +24,7 @@ the last day, because that number is what gives a leak away.
 
 | Rule | Where | Offered for cleaning when |
 |---|---|---|
-| Test browser profiles | Folders in `$TMPDIR` that hold a Chrome profile (`Default/Preferences`) or start with `playwright_chromiumdev_profile-`, `playwright_firefoxdev_profile-`, `puppeteer_dev_chrome_profile-` or `puppeteer_dev_firefox_profile-` | nothing inside changed for 2 hours |
+| Test browser profiles | Folders in `$TMPDIR` that hold a Chrome profile (a `Default` folder with `Preferences`, `Cookies`, `Session Storage`, `Local Storage`, `GPUCache` or `Service Worker` inside) or start with `playwright_chromiumdev_profile-`, `playwright_firefoxdev_profile-`, `puppeteer_dev_chrome_profile-` or `puppeteer_dev_firefox_profile-` | nothing inside changed for 2 hours |
 | Headless Chrome scratch | `scoped_dir*` in `~/Library/Caches/Google/Chrome-headless` and `$TMPDIR` | nothing inside changed for 2 hours |
 | Claude Code session temp | `/private/tmp/claude-<uid>/<project>/<session>` | nothing inside changed for 2 days |
 | Old subagent logs | `projects/<project>/<session>/subagents` in `~/.claude` and in every [CCS](https://github.com/kaitranntt/ccs) account (`~/.ccs/instances/*`) | nothing inside changed for 3 days |

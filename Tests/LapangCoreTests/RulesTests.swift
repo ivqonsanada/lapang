@@ -17,6 +17,8 @@ private func fakeMac(_ tree: TempTree) throws -> Places {
         try tree.file("T/puppeteer_dev_firefox_profile-abc123/Default/Cookies")
         try tree.file("T/playwright_chromiumdev_profile-x/Local State")
         try tree.file("T/someapp-profile/Default/Preferences")  // a Chrome profile by shape
+        try tree.file("T/killed-profile/Default/GPUCache/data_0")  // one without Preferences
+        try tree.file("T/killed-profile/Default/Session Storage/LOG")
         try tree.file("T/someapp-cache/Default/other")           // not a profile
         try tree.file("T/scoped_dir123/x")                      // rule 2's
         try tree.file("T/puppeteer_dev_firefox_profile-file")                     // a file, not a folder
@@ -25,7 +27,7 @@ private func fakeMac(_ tree: TempTree) throws -> Places {
         try tree.symlink("T/puppeteer_dev_firefox_profile-link", to: tree.url("elsewhere").path)
 
         let names = Rules.browserProfiles(places).map(\.url.lastPathComponent).sorted()
-        #expect(names == ["playwright_chromiumdev_profile-x", "puppeteer_dev_firefox_profile-abc123", "someapp-profile"])
+        #expect(names == ["killed-profile", "playwright_chromiumdev_profile-x", "puppeteer_dev_firefox_profile-abc123", "someapp-profile"])
         #expect(Rules.browserProfiles(places).allSatisfy { $0.root == places.userTemp })
     }
 
