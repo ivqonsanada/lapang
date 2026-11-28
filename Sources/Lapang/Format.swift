@@ -3,6 +3,25 @@ import LapangCore
 import SwiftUI
 
 enum Format {
+    /// Debug builds take --rename=old:new,…, so a picture for the README can
+    /// show this Mac's real numbers under made-up folder names.
+    static let renames: [(String, String)] = {
+        #if DEBUG
+        guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--rename=") }) else { return [] }
+        return argument.dropFirst("--rename=".count).split(separator: ",").compactMap { pair in
+            let parts = pair.split(separator: ":", maxSplits: 1)
+            return parts.count == 2 ? (String(parts[0]), String(parts[1])) : nil
+        }
+        #else
+        return []
+        #endif
+    }()
+
+    /// A folder name or path as the window shows it: as is, unless renamed.
+    static func shown(_ text: String) -> String {
+        renames.reduce(text) { $0.replacingOccurrences(of: $1.0, with: $1.1) }
+    }
+
     /// Decimal units, as Finder counts.
     static func bytes(_ value: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: value, countStyle: .file)
@@ -69,6 +88,11 @@ enum Format {
 
     /// The two lines an item is listed with: what it is, and where.
     static func lines(_ item: Item, home: URL) -> (title: String, detail: String) {
+        let (title, detail) = plainLines(item, home: home)
+        return (shown(title), shown(detail))
+    }
+
+    private static func plainLines(_ item: Item, home: URL) -> (title: String, detail: String) {
         switch item.rule {
         case .claudeTemp:
             // …/claude-501/<project>/<session>

@@ -110,9 +110,8 @@ struct RuleRow: View {
         if rule == .repeatedCopies, let biggest = report.families.first {
             // Which script left them is easiest to tell from the name.
             let groups = report.families.count
-            count += groups == 1
-                ? ", all \(Families.display(biggest.key))"
-                : " in \(groups) groups, the largest \(Families.display(biggest.key))"
+            let family = Format.shown(Families.display(biggest.key))
+            count += groups == 1 ? ", all \(family)" : " in \(groups) groups, the largest \(family)"
         }
         var tail = ""
         if report.inUse > 0 { tail += " · \(report.inUse.formatted()) changed recently, kept" }

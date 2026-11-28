@@ -3,7 +3,7 @@
 A Mac app that shows how much disk space is left, finds the leftovers developer tools forget to
 delete, and removes them only after you review the list. *Lapang* is Indonesian for roomy.
 
-<img src="docs/window.png" width="560" alt="The Lapang window: 82.3 GB free above a capacity bar, then one row per kind of leftover with its size and a Review button">
+<img src="docs/window.png" width="560" alt="The Lapang window: 31.9 GB free above a capacity bar, one row per kind of leftover with its size and a Review button, and below them the places that came back since the last clean">
 
 ## Why it exists
 
@@ -122,7 +122,9 @@ path comes from `Places`, so the tests run each rule on a fake home folder insid
 
 `.build/debug/Lapang --snapshot=<folder>` (debug builds only) draws the window to PNG files at
 each stage of a real scan, in light and dark. It opens the review sheets and closes them without
-deleting anything.
+deleting anything. Add `--rename=old:new,…` to draw other names for your folders, so a picture
+keeps the real numbers without your project names, and `--history-log=<file>` to learn from
+another deletion log.
 
 ## Status
 

@@ -89,8 +89,8 @@ struct ComebackRow: View {
     var body: some View {
         LeftoverRow(
             symbol: spot.rule.symbol,
-            title: spot.pattern.display,
-            detail: "\(spot.rule.title) · \(Format.place(spot.folder, home: model.places.home))"
+            title: Format.shown(spot.pattern.display),
+            detail: Format.shown("\(spot.rule.title) · \(Format.place(spot.folder, home: model.places.home))")
         ) {
             VStack(alignment: .leading, spacing: 3) {
                 comeback
