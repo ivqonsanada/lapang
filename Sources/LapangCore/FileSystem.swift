@@ -42,6 +42,33 @@ public enum FileSystem {
         }
     }
 
+    /// The folder a Claude Code project name stands for, found by trying each
+    /// - as a / and keeping the paths that exist: -Users-me-code-web-app is
+    /// /Users/me/code/web-app when that folder exists. A -- is a hidden
+    /// folder (/.config). Nil when no folder on disk matches.
+    public static func claudeProjectFolder(_ encoded: String) -> URL? {
+        guard encoded.hasPrefix("-") else { return nil }
+        let tokens = encoded.dropFirst().split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+        func search(_ base: String, _ index: Int) -> String? {
+            if index == tokens.count { return base }
+            var name = ""
+            var next = index
+            if tokens[next].isEmpty, next + 1 < tokens.count {
+                name = "."
+                next += 1
+            }
+            for end in next..<tokens.count {
+                name += (end > next ? "-" : "") + tokens[end]
+                let path = base + "/" + name
+                if FileSystem.isRealFolder(URL(fileURLWithPath: path)), let found = search(path, end + 1) {
+                    return found
+                }
+            }
+            return nil
+        }
+        return search("", 0).map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
     /// The path with every symlink in it resolved (/var → /private/var), or
     /// nil when it does not exist.
     public static func realPath(_ url: URL) -> String? {

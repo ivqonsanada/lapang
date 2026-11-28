@@ -44,6 +44,9 @@ final class LapangModel {
                     rules[rule]?.value = report.withIdle(settings.rules.idle(for: rule))
                 }
             }
+            if let reports = history.value {
+                history.value = reports.map { $0.withIdle(settings.rules.idle(for: $0.spot.rule)) }
+            }
         }
     }
 
@@ -58,12 +61,17 @@ final class LapangModel {
     var growth = Slot<[Growth]>()
     /// The root the growth watch is reading now.
     var growthRoot: URL?
+    /// The places the deletion log says were cleaned, looked at again.
+    var history = Slot<[SpotReport]>()
+    var historyChecked: Date?
 
     /// Bytes the row under the pointer would free, drawn on the capacity bar.
     var preview: Int64 = 0
 
     /// The open review sheet, if any.
     var reviewing: RuleID?
+    /// The open review sheet of one place that refilled, if any.
+    var reviewingSpot: SpotReport?
     var cleaningCaches = false
 
     private var tasks: [String: Task<Void, Never>] = [:]
@@ -108,7 +116,20 @@ final class LapangModel {
                 self?.refreshSpace()
             }
         }
+        tasks["historyTimer"] = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.historyInterval))
+                self?.checkHistory()
+            }
+        }
     }
+
+    /// How often the places in the deletion log are looked at again.
+    static let historyInterval: TimeInterval = 15 * 60
+
+    /// Tasks Stop leaves running: the timers, and the history check, which is
+    /// quick and shows its progress in its own section.
+    private static let lasting: Set<String> = ["space", "historyTimer", "history"]
 
     func scanAll() {
         stopScan()
@@ -121,10 +142,11 @@ final class LapangModel {
         for rule in RuleID.allCases { scan(rule) }
         scanCaches()
         scanGrowth()
+        checkHistory()
     }
 
     func stopScan() {
-        for (key, task) in tasks where key != "space" {
+        for (key, task) in tasks where !Self.lasting.contains(key) {
             task.cancel()
             tasks[key] = nil
         }
@@ -206,6 +228,41 @@ final class LapangModel {
         }
     }
 
+    /// The log the history is learned from. Debug builds take
+    /// --history-log=<file>, so a snapshot can show a history this Mac has not made.
+    var historyLog: URL {
+        #if DEBUG
+        if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--history-log=") }) {
+            return URL(fileURLWithPath: String(argument.dropFirst("--history-log=".count)))
+        }
+        #endif
+        return places.deletionLog
+    }
+
+    /// Reads the deletion log and looks again in each place it names.
+    func checkHistory() {
+        tasks["history"]?.cancel()
+        history.running = true
+        history.error = nil
+        let places = places
+        let rules = settings.rules
+        let log = historyLog
+        tasks["history"] = Task { [weak self] in
+            do {
+                let reports = try await offMain {
+                    try DeletionHistory.check(DeletionHistory.spots(fromLog: log), in: places, settings: rules)
+                }
+                self?.history = Slot(value: reports)
+                self?.historyChecked = Date()
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.history.running = false
+                self?.history.error = error.localizedDescription
+            }
+        }
+    }
+
     private func shellEnvironment() async throws -> ShellEnvironment {
         if let shell { return shell }
         let loaded = try await ShellEnvironment.load()
@@ -222,6 +279,7 @@ final class LapangModel {
         let result = (try? await offMain { deleter.delete(items, progress: progress) }) ?? DeletionResult()
         refreshSpace()
         for rule in Set(items.map(\.rule)) { scan(rule) }
+        checkHistory()
         return result
     }
 

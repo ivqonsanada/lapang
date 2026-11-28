@@ -14,8 +14,11 @@ struct SettingsView: View {
                 Stepper(value: hours(\.scratchIdle), in: 1...72) {
                     Text("Headless Chrome scratch: idle for \(Format.count(Int(model.settings.rules.scratchIdle / 3600), "hour", "hours"))")
                 }
+                Stepper(value: hours(\.copiesIdle), in: 1...72) {
+                    Text("Repeated copies: idle for \(Format.count(Int(model.settings.rules.copiesIdle / 3600), "hour", "hours"))")
+                }
             } header: {
-                Text("Browser leftovers")
+                Text("Temp folders")
             }
             Section {
                 Stepper(value: days(\.claudeTempIdle), in: 1...30) {

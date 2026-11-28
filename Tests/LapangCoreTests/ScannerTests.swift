@@ -151,3 +151,22 @@ import Testing
         #expect(stats.freeableBytes < 100_000)
     }
 }
+
+@Suite struct ClaudeProjectNameTests {
+    @Test func findsTheFolderAProjectNameStandsFor() throws {
+        let tree = try TempTree()
+        try tree.folder("code/web-app")
+        try tree.folder("code/web")
+        try tree.folder(".config/tool")
+        // Claude Code names a project after its path, every / and . a -.
+        let root = try #require(FileSystem.realPath(tree.root))
+        func encoded(_ relative: String) -> String {
+            (root + "/" + relative).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
+        }
+        #expect(FileSystem.claudeProjectFolder(encoded("code/web-app"))?.path == root + "/code/web-app")
+        #expect(FileSystem.claudeProjectFolder(encoded("code/web"))?.path == root + "/code/web")
+        #expect(FileSystem.claudeProjectFolder(encoded(".config/tool"))?.path == root + "/.config/tool")
+        #expect(FileSystem.claudeProjectFolder(encoded("code/gone")) == nil)
+        #expect(FileSystem.claudeProjectFolder("no-leading-dash") == nil)
+    }
+}

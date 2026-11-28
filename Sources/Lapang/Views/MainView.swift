@@ -11,6 +11,7 @@ struct MainView: View {
             VStack(alignment: .leading, spacing: 36) {
                 SpaceHeader()
                 LeftoversSection(review: { model.reviewing = $0 }, cleanCaches: { model.cleaningCaches = true })
+                ComebackSection()
                 GrowthSection()
                 Footer()
             }
@@ -52,6 +53,9 @@ struct MainView: View {
         }
         .sheet(item: $model.reviewing) { rule in
             ReviewSheet(rule: rule, items: model.report(rule)?.cleanable ?? [])
+        }
+        .sheet(item: $model.reviewingSpot) { report in
+            ReviewSheet(rule: report.spot.rule, items: report.cleanable)
         }
         .sheet(isPresented: $model.cleaningCaches) {
             CacheSheet(caches: model.caches.value ?? [])

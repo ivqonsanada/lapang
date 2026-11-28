@@ -60,7 +60,9 @@ enum Format {
         let project = session.deletingLastPathComponent()
         if folder.lastPathComponent == "scratchpad",
            project.deletingLastPathComponent().lastPathComponent.hasPrefix("claude-") {
-            return "\(Format.project(project.lastPathComponent, home: home)) scratchpad, session \(session.lastPathComponent.prefix(8))"
+            let name = FileSystem.claudeProjectFolder(project.lastPathComponent)?.lastPathComponent
+                ?? Format.project(project.lastPathComponent, home: home)
+            return "\(name) scratchpad, session \(session.lastPathComponent.prefix(8))"
         }
         return path(folder, home: home)
     }
@@ -123,7 +125,7 @@ extension RuleID {
         case .browserProfiles: "Chrome profiles that test scripts opened in the temp folder and never removed."
         case .headlessScratch: "scoped_dir folders headless Chrome leaves in its cache and in the temp folder."
         case .claudeTemp: "Task output and scratchpads of Claude Code sessions, in /private/tmp."
-        case .repeatedCopies: "Folders a script made on every run and never removed: three or more with one name and a random ending, like checkout.kbMU. Found in the temp folders and in the scratchpads of Claude Code sessions still running."
+        case .repeatedCopies: "Copies a script made on every run, like checkout.kbMU, in the temp folders and in running Claude Code sessions' scratchpads."
         case .subagentLogs: "Transcripts of Claude subagents. Claude Code's own 30-day cleanup leaves them."
         case .projectFolders: "node_modules, .next, .open-next and Composer's vendor in your projects. An install or a build brings them back."
         }

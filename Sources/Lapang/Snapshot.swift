@@ -42,13 +42,20 @@ enum Snapshot {
                 NSApp.terminate(nil)
                 return
             }
-            window.setContentSize(NSSize(width: 760, height: 1180))
+            // The tallest screen shows the whole window, every section in one picture.
+            if let screen = NSScreen.screens.max(by: { $0.visibleFrame.height < $1.visibleFrame.height }) {
+                let area = screen.visibleFrame
+                let height = min(2100, area.height - 40)
+                window.setFrame(NSRect(x: area.minX + 20, y: area.maxY - height - 20, width: 760, height: height), display: true)
+            } else {
+                window.setContentSize(NSSize(width: 760, height: 1180))
+            }
             NSApp.appearance = NSAppearance(named: .aqua)
             try? await Task.sleep(for: .seconds(0.6))
             capture(window, "1-scanning-light", folder)
 
             let started = Date()
-            while model.isScanning, Date().timeIntervalSince(started) < 900 {
+            while model.isScanning || model.history.running, Date().timeIntervalSince(started) < 900 {
                 try? await Task.sleep(for: .seconds(1))
             }
             print("snapshot: scan took \(Int(Date().timeIntervalSince(started))) s")
@@ -124,6 +131,15 @@ enum Snapshot {
         }
         for cache in model.caches.value ?? [] { print("cache \(cache.name): \(cache.bytes) \(cache.folder.path) via \(cache.tool.path)") }
         if let error = model.caches.error { print("caches error: \(error)") }
+        for spot in model.history.value ?? [] {
+            print("came back \(spot.spot.rule.rawValue) \(spot.spot.pattern.display) in \(spot.spot.folder.path): items \(spot.items.count) back \(spot.back.count) \(spot.backBytes) cleanable \(spot.cleanable.count) perDay \(Int64(spot.bytesPerDay ?? 0)) exists \(spot.folderExists)")
+        }
+        if let error = model.history.error { print("history error: \(error)") }
+        if let copies = model.report(.repeatedCopies) {
+            for family in copies.families.prefix(8) {
+                print("family \(family.key)* in \(family.folder.path): \(family.items.count) folders, freeable \(family.bytes), on disk \(family.diskBytes)")
+            }
+        }
         for growth in model.growth.value ?? [] { print("grew: \(growth.bytes) \(growth.files) \(growth.url.path)") }
         if let error = model.growth.error { print("growth error: \(error)") }
     }

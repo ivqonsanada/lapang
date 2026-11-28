@@ -106,7 +106,14 @@ struct RuleRow: View {
 
     private func summary(_ report: RuleReport) -> Text {
         let (one, many) = rule.noun
-        let count = Format.count(report.items.count, one, many)
+        var count = Format.count(report.items.count, one, many)
+        if rule == .repeatedCopies, let biggest = report.families.first {
+            // Which script left them is easiest to tell from the name.
+            let groups = report.families.count
+            count += groups == 1
+                ? ", all \(Families.display(biggest.key))"
+                : " in \(groups) groups, the largest \(Families.display(biggest.key))"
+        }
         var tail = ""
         if report.inUse > 0 { tail += " · \(report.inUse.formatted()) changed recently, kept" }
         if report.unreadable > 0 { tail += " · \(report.unreadable.formatted()) unreadable" }
