@@ -4,6 +4,7 @@ public enum RuleID: String, Sendable, CaseIterable, Codable, Hashable, Identifia
     case browserProfiles
     case headlessScratch
     case claudeTemp
+    case repeatedCopies
     case subagentLogs
     case projectFolders
 
@@ -67,6 +68,11 @@ public struct RuleSettings: Sendable, Equatable, Codable {
     public var claudeTempIdle: TimeInterval = 2 * 86400
     public var subagentAge: TimeInterval = 3 * 86400
     public var projectIdle: TimeInterval = 7 * 86400
+    public var copiesIdle: TimeInterval = 6 * 3600
+    /// A family of repeated copies is listed only when its folders take this
+    /// much on disk in all. Thousands of empty mktemp folders are clutter,
+    /// not a reason to look.
+    public var copiesMinimumBytes: Int64 = 100_000_000
 
     public init() {}
 
@@ -80,6 +86,8 @@ public struct RuleSettings: Sendable, Equatable, Codable {
         claudeTempIdle = try saved.decodeIfPresent(TimeInterval.self, forKey: .claudeTempIdle) ?? defaults.claudeTempIdle
         subagentAge = try saved.decodeIfPresent(TimeInterval.self, forKey: .subagentAge) ?? defaults.subagentAge
         projectIdle = try saved.decodeIfPresent(TimeInterval.self, forKey: .projectIdle) ?? defaults.projectIdle
+        copiesIdle = try saved.decodeIfPresent(TimeInterval.self, forKey: .copiesIdle) ?? defaults.copiesIdle
+        copiesMinimumBytes = try saved.decodeIfPresent(Int64.self, forKey: .copiesMinimumBytes) ?? defaults.copiesMinimumBytes
     }
 
     public func idle(for rule: RuleID) -> TimeInterval {
@@ -87,6 +95,7 @@ public struct RuleSettings: Sendable, Equatable, Codable {
         case .browserProfiles: browserIdle
         case .headlessScratch: scratchIdle
         case .claudeTemp: claudeTempIdle
+        case .repeatedCopies: copiesIdle
         case .subagentLogs: subagentAge
         case .projectFolders: projectIdle
         }
@@ -262,13 +271,97 @@ public enum Rules {
         return found
     }
 
-    public static func candidates(for rule: RuleID, in places: Places) throws -> [Candidate] {
+    /// Rule 6. Folders a script made once per run and never removed: three
+    /// or more siblings with one name and a random ending (see Families), in
+    /// $TMPDIR, in /private/tmp and in the scratchpad of every Claude Code
+    /// session that is still running. A session that went idle is rule 3's,
+    /// whole. Folders rules 1 and 2 already list are left to them.
+    public static func repeatedCopies(_ places: Places, settings: RuleSettings, now: Date) -> [Candidate] {
+        var claimed = Set((browserProfiles(places) + headlessScratch(places)).map(\.url.path))
+        claimed.insert(places.claudeTemp.path)
+        let roots = [places.userTemp, places.sharedTemp]
+            + liveScratchpads(places, idle: settings.claudeTempIdle, now: now)
+        return roots.flatMap { root -> [Candidate] in
+            let folders = FileSystem.subfolders(of: root).filter { !claimed.contains($0.path) }
+            let byName = Dictionary(folders.map { ($0.lastPathComponent, $0) }, uniquingKeysWith: { first, _ in first })
+            return Families.group(Array(byName.keys)).values
+                .flatMap { $0 }
+                .compactMap { byName[$0] }
+                .sorted { $0.path < $1.path }
+                .map { Candidate(url: $0, root: root) }
+        }
+    }
+
+    /// The scratchpad of each Claude Code session where something was done
+    /// within `idle`: the session folder, its scratchpad or anything directly
+    /// in either changed. That reads a few names per session; rule 3 measures
+    /// everything inside, so a session live here is never idle for rule 3.
+    static func liveScratchpads(_ places: Places, idle: TimeInterval, now: Date) -> [URL] {
+        FileSystem.subfolders(of: places.claudeTemp).flatMap { project in
+            FileSystem.subfolders(of: project).compactMap { session -> URL? in
+                let scratchpad = session.appending(path: "scratchpad", directoryHint: .isDirectory)
+                guard FileSystem.isRealFolder(scratchpad) else { return nil }
+                let newest = [session, scratchpad].flatMap { folder -> [Date] in
+                    let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+                    return [FileSystem.info(folder)?.modified]
+                        .compactMap { $0 }
+                        + names.compactMap { FileSystem.info(folder.appending(path: $0))?.modified }
+                }.max() ?? .distantPast
+                return now.timeIntervalSince(newest) < idle ? scratchpad : nil
+            }
+        }
+    }
+
+    public static func candidates(
+        for rule: RuleID, in places: Places, settings: RuleSettings = RuleSettings(), now: Date = Date()
+    ) throws -> [Candidate] {
         switch rule {
         case .browserProfiles: browserProfiles(places)
         case .headlessScratch: headlessScratch(places)
         case .claudeTemp: claudeTemp(places)
+        case .repeatedCopies: repeatedCopies(places, settings: settings, now: now)
         case .subagentLogs: subagentLogs(places)
         case .projectFolders: try projectFolders(places)
+        }
+    }
+
+    /// Whether `folder`, found again after a deletion, is something `rule`
+    /// looks after, with `root` the folder the deleter must keep it inside.
+    /// Nil for rules whose items are not named in a shared folder (3 and 4),
+    /// and for a folder the rule would not list.
+    static func root(of folder: URL, for rule: RuleID, in places: Places) -> URL? {
+        guard FileSystem.isRealFolder(folder) else { return nil }
+        let name = folder.lastPathComponent
+        let parent = folder.deletingLastPathComponent()
+        func same(_ a: URL, _ b: URL) -> Bool { a.standardizedFileURL.path == b.standardizedFileURL.path }
+        switch rule {
+        case .browserProfiles:
+            guard same(parent, places.userTemp), !name.hasPrefix("scoped_dir"),
+                  profilePrefixes.contains(where: name.hasPrefix) || isChromeProfile(folder)
+            else { return nil }
+            return places.userTemp
+        case .headlessScratch:
+            guard name.hasPrefix("scoped_dir"),
+                  same(parent, places.userTemp) || same(parent, places.chromeHeadlessCache)
+            else { return nil }
+            return parent
+        case .repeatedCopies:
+            let inTemp = same(parent, places.userTemp) || same(parent, places.sharedTemp)
+            // <claude-uid>/<project>/<session>/scratchpad
+            let session = parent.deletingLastPathComponent()
+            let inScratchpad = parent.lastPathComponent == "scratchpad"
+                && same(session.deletingLastPathComponent().deletingLastPathComponent(), places.claudeTemp)
+            guard inTemp || inScratchpad, Families.split(name) != nil,
+                  !Families.looksLikeAnAppsOwn(name),
+                  root(of: folder, for: .browserProfiles, in: places) == nil,
+                  root(of: folder, for: .headlessScratch, in: places) == nil
+            else { return nil }
+            return parent
+        case .projectFolders:
+            guard projectFolderNames.contains(name), isProjectFolder(folder, under: places.home) else { return nil }
+            return parent
+        case .claudeTemp, .subagentLogs:
+            return nil
         }
     }
 
@@ -283,7 +376,7 @@ public enum Rules {
         let idle = settings.idle(for: rule)
         var items: [Item] = []
         var unreadable = 0
-        for candidate in try candidates(for: rule, in: places) {
+        for candidate in try candidates(for: rule, in: places, settings: settings, now: now) {
             try Task.checkCancellation()
             guard let info = FileSystem.info(candidate.url), info.isFolder,
                   let stats = try? Scanner.measure(candidate.url)
@@ -294,6 +387,47 @@ public enum Rules {
                 created: info.created, lastChange: stats.newestChange, idleNeeded: idle
             ))
         }
+        if rule == .repeatedCopies {
+            items = CopyFamily.families(of: items)
+                .filter { $0.diskBytes >= settings.copiesMinimumBytes }
+                .flatMap(\.items)
+        }
         return RuleReport(rule: rule, items: items, scannedAt: now, unreadable: unreadable)
     }
+}
+
+/// Repeated copies that share a folder and a family key, e.g. the 110
+/// checkout.* folders in one session's scratchpad.
+public struct CopyFamily: Sendable, Identifiable {
+    public var id: String { folder.path + "/" + key }
+    public let folder: URL
+    public let key: String
+    /// Largest first.
+    public let items: [Item]
+
+    public var bytes: Int64 { items.reduce(0) { $0 + $1.bytes } }
+    public var diskBytes: Int64 { items.reduce(0) { $0 + $1.diskBytes } }
+
+    /// Largest first, by what deleting frees.
+    public static func families(of items: [Item]) -> [CopyFamily] {
+        let grouped = Dictionary(grouping: items) { item in
+            FamilyID(folder: item.url.deletingLastPathComponent().path, key: Families.split(item.url.lastPathComponent)?.key ?? item.url.lastPathComponent)
+        }
+        return grouped.map { id, members in
+            CopyFamily(
+                folder: URL(fileURLWithPath: id.folder, isDirectory: true), key: id.key,
+                items: members.sorted { $0.bytes > $1.bytes }
+            )
+        }.sorted { $0.bytes != $1.bytes ? $0.bytes > $1.bytes : $0.id < $1.id }
+    }
+
+    private struct FamilyID: Hashable {
+        let folder: String
+        let key: String
+    }
+}
+
+extension RuleReport {
+    /// The report's items by family (meaningful for repeated copies).
+    public var families: [CopyFamily] { CopyFamily.families(of: items) }
 }

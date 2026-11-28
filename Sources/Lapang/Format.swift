@@ -52,6 +52,19 @@ enum Format {
         return folder.hasPrefix(prefix) ? String(folder.dropFirst(prefix.count)) : folder
     }
 
+    /// A folder as a person knows it: a Claude Code session's scratchpad by
+    /// its project and session, anything else by its path.
+    static func place(_ folder: URL, home: URL) -> String {
+        // …/claude-<uid>/<project>/<session>/scratchpad
+        let session = folder.deletingLastPathComponent()
+        let project = session.deletingLastPathComponent()
+        if folder.lastPathComponent == "scratchpad",
+           project.deletingLastPathComponent().lastPathComponent.hasPrefix("claude-") {
+            return "\(Format.project(project.lastPathComponent, home: home)) scratchpad, session \(session.lastPathComponent.prefix(8))"
+        }
+        return path(folder, home: home)
+    }
+
     /// The two lines an item is listed with: what it is, and where.
     static func lines(_ item: Item, home: URL) -> (title: String, detail: String) {
         switch item.rule {
@@ -69,6 +82,10 @@ enum Format {
                     "\(account.lastPathComponent) · session \(session.lastPathComponent)")
         case .browserProfiles, .headlessScratch:
             return (item.url.lastPathComponent, path(item.url.deletingLastPathComponent(), home: home))
+        case .repeatedCopies:
+            let name = item.url.lastPathComponent
+            let family = Families.split(name).map { Families.display($0.key) } ?? name
+            return (name, "\(family) · \(place(item.url.deletingLastPathComponent(), home: home))")
         case .projectFolders:
             // <project>/node_modules: the project by name, then what goes and where.
             let project = item.url.deletingLastPathComponent()
@@ -95,6 +112,7 @@ extension RuleID {
         case .browserProfiles: "Test browser profiles"
         case .headlessScratch: "Headless Chrome scratch"
         case .claudeTemp: "Claude session temp"
+        case .repeatedCopies: "Repeated temp copies"
         case .subagentLogs: "Old subagent logs"
         case .projectFolders: "Project dependencies and builds"
         }
@@ -105,6 +123,7 @@ extension RuleID {
         case .browserProfiles: "Chrome profiles that test scripts opened in the temp folder and never removed."
         case .headlessScratch: "scoped_dir folders headless Chrome leaves in its cache and in the temp folder."
         case .claudeTemp: "Task output and scratchpads of Claude Code sessions, in /private/tmp."
+        case .repeatedCopies: "Folders a script made on every run and never removed: three or more with one name and a random ending, like checkout.kbMU. Found in the temp folders and in the scratchpads of Claude Code sessions still running."
         case .subagentLogs: "Transcripts of Claude subagents. Claude Code's own 30-day cleanup leaves them."
         case .projectFolders: "node_modules, .next, .open-next and Composer's vendor in your projects. An install or a build brings them back."
         }
@@ -115,6 +134,7 @@ extension RuleID {
         case .browserProfiles: "Delete test browser profiles?"
         case .headlessScratch: "Delete headless Chrome scratch folders?"
         case .claudeTemp: "Delete Claude session temp folders?"
+        case .repeatedCopies: "Delete repeated temp copies?"
         case .subagentLogs: "Delete old subagent logs?"
         case .projectFolders: "Delete project dependencies and builds?"
         }
@@ -125,19 +145,21 @@ extension RuleID {
         case .browserProfiles: "No test browser profiles in the temp folder."
         case .headlessScratch: "No scoped_dir folders."
         case .claudeTemp: "No Claude session temp folders."
+        case .repeatedCopies: "No group of repeated folders takes 100 MB or more."
         case .subagentLogs: "No subagent logs."
         case .projectFolders: "No node_modules, .next, .open-next or vendor folders in your projects."
         }
     }
 
     /// Relevant to what the rule holds: a browser, a window-less browser,
-    /// a terminal app's sessions, conversation transcripts, a project folder
+    /// a terminal app's sessions, stacked copies, conversation transcripts, a project folder
     /// with what its tools generated.
     var symbol: String {
         switch self {
         case .browserProfiles: "globe"
         case .headlessScratch: "rectangle.dashed"
         case .claudeTemp: "terminal"
+        case .repeatedCopies: "square.on.square"
         case .subagentLogs: "text.bubble"
         case .projectFolders: "folder.badge.gearshape"
         }
@@ -146,7 +168,7 @@ extension RuleID {
     /// What one item is called in counts.
     var noun: (String, String) {
         switch self {
-        case .browserProfiles, .headlessScratch, .projectFolders: ("folder", "folders")
+        case .browserProfiles, .headlessScratch, .repeatedCopies, .projectFolders: ("folder", "folders")
         case .claudeTemp, .subagentLogs: ("session", "sessions")
         }
     }
@@ -158,6 +180,7 @@ extension RuleID {
         case .subagentLogs: return "Only sessions whose subagent logs are older than \(time) are listed."
         case .claudeTemp: return "Only sessions where nothing changed for \(time) are listed. A live session always has recent files."
         case .browserProfiles, .headlessScratch: return "Only folders where nothing changed for \(time) are listed."
+        case .repeatedCopies: return "Only folders where nothing changed for \(time) are listed, so the copy a running script uses stays."
         case .projectFolders: return "Only folders where nothing changed for \(time) are listed. Running the project's install or build brings one back."
         }
     }
